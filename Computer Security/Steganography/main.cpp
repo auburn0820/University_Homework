@@ -1,33 +1,202 @@
-//
-//  main.cpp
-//  Steganography
-//
-//  Created by í”¼ìˆ˜ì˜ on 2021/03/15.
-//
-
 #include <iostream>
 #include <fstream>
-#include "bitmap.h"
+#include <Windows.h>
+#include <cstdio>
+#include <string>
 
 using namespace std;
 
-const string bmp_path = "origin.bmp";
-const string test_path = "ca.txt";
+const char* BMP_PATH = "origin.bmp";
+const char* BMP_MODIFIED_PATH = "stego.bmp";
 
-void read_file() {
-    ifstream file("test.txt");
-    string s;
-    
-    if(file.is_open()) {
-        file >> s;
-        cout << "ì…ë ¥ë°›ì€ ë¬¸ìì—´ : " << s << '\n';
-    } else
-        cout << "íŒŒì¼ì„ ì½ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤\n";
+// ¸î ¹øÂ° ºñÆ®¿¡ ¾î¶°ÇÑ °ªÀÌ µé¾îÀÖ´ÂÁö ¹İÈ¯ÇØÁÖ´Â ÇÔ¼ö
+unsigned short getBit(int x, char ch) {
+	unsigned short ch_convert = (unsigned short)ch;
+
+	return (ch_convert & (1 << x)) >> x;
 }
 
-int main(int argc, const char * argv[]) {
-    // insert code here...
-    read_file();
-    
-    return 0;
+void encode_bmp_file() {
+	FILE* image_file = NULL;
+	FILE* output_image_file = NULL;
+	
+	BITMAPFILEHEADER bf_header;
+	BITMAPINFOHEADER bi_header;
+	RGBQUAD hRGB[256];
+
+	// origin.bmp¸¦ ´ãÀ» ¹è¿­
+	unsigned char input_image[314][559][3];
+	// stegano.bmp¸¦ ´ãÀ» ¹è¿­
+	unsigned char output_image[314][559][3];
+
+	cin.clear();
+	string str;
+	getline(cin, str);
+
+	int length = (int)str.length();
+
+	if (fopen_s(&image_file, BMP_PATH, "rb") == 0 && fopen_s(&output_image_file, BMP_MODIFIED_PATH, "wb") == 0) {
+		// bmp ÆÄÀÏ Çì´õÀÇ Á¤º¸¸¦ °¡Á®¿Â´Ù.
+		fread(&bf_header, sizeof(BITMAPFILEHEADER), 1, image_file);
+		fread(&bi_header, sizeof(BITMAPINFOHEADER), 1, image_file);
+
+		int width = bi_header.biWidth;
+		int height = bi_header.biHeight;
+
+		fread(&hRGB, sizeof(RGBQUAD), 256, image_file);
+		fread(input_image, height * width * 3, 1, image_file);
+
+		// originÀÌ¹ÌÁöÀÇ µ¥ÀÌÅÍ¸¦ ½ºÅ×°¡³ë±×·¡ÇÇ¸¦ ÀúÀåÇÒ ¹è¿­¿¡ °¡Á®¿Â´Ù.
+		for (int i = 0; i < 314; i++) {
+			for (int j = 0; j < 559; j++) {
+				for (int k = 0; k < 3; k++) {
+					output_image[i][j][k] = input_image[i][j][k];
+				}
+			}
+		}
+
+		// ±æÀÌ ¼ıÀÚ¸¦ ÃÖ´ë 2byte ¼ö·Î ÀúÀåÇÑ´Ù.
+		// bmp ÆÄÀÏÀº ¹è¿­ ÇÏ³ª ´ç 1byteÀÌ¹Ç·Î, ³ª´²¼­ ÀúÀåÇØ¾ß ÇÑ´Ù.
+		unsigned short upper = 0;
+		unsigned short lower = 0;
+
+		// ¾Õ 1byte, µÚ 1byte¸¦ ³ª´©´Â °úÁ¤
+		upper = length >> 8;
+		lower = length;
+
+		unsigned short ret = 0;
+
+		
+		for (int i = 7; i >= 0; i--) {
+			ret = ret << 1;
+			ret |= getBit(i, lower);
+		}
+
+		lower = ret;
+
+		output_image[0][0][0] = upper;
+		output_image[0][0][1] = lower;
+
+		// 1byteÁ¤º¸¸¦ °¢°¢ÀÇ lsb¿¡ ÀúÀåÇÑ´Ù.
+		int idx = 0;
+		int lsb_count = 7;
+
+		for (int i = 1; i < 314; i++) {
+			for (int j = 1; j < 559; j++) {
+				for (int k = 0; k < 3; k++) {
+					if (idx < length) {
+						// ÀúÀåÇÒ ASCII CodeÀÇ Á¤º¸¸¦ ÇÑ ºñÆ®¾¿ °¡Á®¿Â´Ù.
+						unsigned char ch_bit_data = (unsigned char)getBit(lsb_count, str[idx]);
+						// ºñÆ®°¡ 0ÀÏ °æ¿ì
+						if (ch_bit_data == 0) {
+							// lsb¸¦ 0À¸·Î ¹Ù²ãÁØ´Ù.
+							output_image[i][j][k] &= ~1;
+						}
+						// ºñÆ®°¡ 1ÀÏ °æ¿ì
+						else if (ch_bit_data == 1) {
+							// lsb¸¦ 1·Î ¹Ù²ãÁØ´Ù.
+							output_image[i][j][k] |= 1;
+						}
+						
+						lsb_count--;
+						// ÇÑ °³ÀÇ ASCII Code¸¦ ´ã¾ÒÀ» °æ¿ì, ´ÙÀ½ ASCII Code¸¦ ÀúÀåÇÏ±â À§ÇØ idx¸¦ Áõ°¡ÇÑ´Ù.
+						if (lsb_count == -1) {
+							idx++;
+							lsb_count = 7;
+						}
+					}
+					// ¸ğµç ÅØ½ºÆ® Á¤º¸¸¦ ´ã¾ÒÀ» °æ¿ì, ±âÁ¸ ÀÌ¹ÌÁö Á¤º¸¸¦ ±×´ë·Î ´ã´Â´Ù.
+					else
+						output_image[i][j][k] = input_image[i][j][k];
+				}
+			}
+		}
+		
+		// bmp ÆÄÀÏ Çü½ÄÀ¸·Î ÀúÀåÇÑ´Ù.
+		fwrite(&bf_header, sizeof(BITMAPFILEHEADER), 1, output_image_file);
+		fwrite(&bi_header, sizeof(BITMAPINFOHEADER), 1, output_image_file);
+		fwrite(&hRGB, sizeof(RGBQUAD), 256, output_image_file);
+		fwrite(output_image, height * width * 3, 1, output_image_file);
+
+		fclose(output_image_file);
+		fclose(image_file);
+	}
+}
+
+void decode_bmp_file() {
+	FILE* modified_image = NULL;
+	FILE* output_text = NULL;
+
+	BITMAPFILEHEADER bf_header;
+	BITMAPINFOHEADER bi_header;
+	RGBQUAD hRGB[256];
+	char* text_buffer;
+
+	unsigned char modified_image_arr[314][559][3];
+
+	if (fopen_s(&modified_image, BMP_MODIFIED_PATH, "rb") == 0) {
+		fread(&bf_header, sizeof(BITMAPFILEHEADER), 1, modified_image);
+		fread(&bi_header, sizeof(BITMAPINFOHEADER), 1, modified_image);
+
+		int width = bi_header.biWidth;
+		int height = bi_header.biHeight;
+
+		fread(&hRGB, sizeof(RGBQUAD), 256, modified_image);
+		fread(modified_image_arr, height * width * 3, 1, modified_image);
+
+		// »óÀ§ 1byteÀÇ ±æÀÌ Á¤º¸¸¦ °¡Á®¿Â´Ù.
+		int gotLength = (int)modified_image_arr[0][0][0] << 8;
+		// °¡Á®¿Â »óÀ§ 1byte ±æÀÌ Á¤º¸¿Í ÇÏÀ§ 1byte ±æÀÌ Á¤º¸¸¦ or ºñÆ® ¿¬»êÇÑ´Ù.
+		gotLength |= modified_image_arr[0][0][1];
+
+		// ÇØµ¶µÈ ÅØ½ºÆ® Á¤º¸¸¦ ´ãÀ» ¹öÆÛ¸¦ µ¿ÀûÇÒ´çÇÑ´Ù.
+		text_buffer = new char[gotLength];
+
+		int idx = 0;
+		int ascii_code = 0;
+		int lsb_count = 0;
+
+		for (int i = 1; i < 314; i++) {
+			for (int j = 1; j < 559; j++) {
+				for (int k = 0; k < 3; k++) {
+					if (gotLength >= idx) {
+						// ÇØµ¶ÇÒ ASCII CodeÀÇ Á¤º¸¸¦ lsb¿¡¼­ °¡Á®¿Â´Ù.
+						int ch_bit_data = getBit(0, modified_image_arr[i][j][k]);
+						ascii_code = ascii_code << 1;
+
+						if (ch_bit_data == 0) {
+							ascii_code &= ~1;
+						}
+						else if (ch_bit_data == 1) {
+							ascii_code |= 1;
+						}
+						
+						lsb_count++;
+						lsb_count %= 8;
+
+						// ASCII CodeÀÇ Á¤º¸¸¦ ´Ù °¡Á®¿ÔÀ» °æ¿ì, buffer¿¡ ÀÔ·ÂÇÑ´Ù. ÀÌÈÄ ´ÙÀ½ ASCII Code¸¦ °¡Á®¿Â´Ù.
+						if (lsb_count == 0) {
+							text_buffer[idx] = (unsigned char)ascii_code;
+							idx++;
+							ascii_code = 0;
+						}
+					}
+				}
+			}
+		}
+		// ÇØµ¶µÈ Á¤º¸¸¦ Ãâ·ÂÇÑ´Ù.
+		cout.write(text_buffer, gotLength);
+		cout << '\n';
+	}
+}
+
+int main(int argc, const char* argv[]) {
+	if (strcmp(argv[1], "e") == 0) {
+		encode_bmp_file();
+	}
+	else if (strcmp(argv[1], "d") == 0) {
+		decode_bmp_file();
+	}
+
+	return 0;
 }
